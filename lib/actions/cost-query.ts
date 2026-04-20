@@ -326,3 +326,42 @@ export async function listDivisionOptions(): Promise<
   });
   return divisions;
 }
+
+type RecentCostItem = {
+  id: string;
+  period: string;
+  category: CostCategory;
+  projectName: string;
+  projectCode: string;
+  projectId: string;
+  divisionName: string;
+  standardAmount: number;
+  actualAmount: number;
+  varianceRatio: number;
+  isInterUnit: boolean;
+};
+
+export async function listRecentCostItems(limit = 10): Promise<RecentCostItem[]> {
+  const items = await prisma.costItem.findMany({
+    orderBy: [{ period: "desc" }, { createdAt: "desc" }],
+    take: limit,
+    include: {
+      project: { include: { division_: true } },
+      division: true,
+    },
+  });
+
+  return items.map((item) => ({
+    id: item.id,
+    period: item.period,
+    category: item.category as CostCategory,
+    projectName: item.project.name,
+    projectCode: item.project.code,
+    projectId: item.project.id,
+    divisionName: item.division.name,
+    standardAmount: item.standardAmount,
+    actualAmount: item.actualAmount,
+    varianceRatio: calcVariance(item.standardAmount, item.actualAmount).ratio,
+    isInterUnit: item.isInterUnit,
+  }));
+}
