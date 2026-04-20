@@ -8,8 +8,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "prisma generate",
     "db:deploy": "tsx scripts/turso-deploy.ts",
-    "db:seed": "prisma db seed",
+    "db:reset:remote": "tsx scripts/turso-reset.ts",
     "db:seed:remote": "tsx prisma/seed.ts"
   },
   "dependencies": {
