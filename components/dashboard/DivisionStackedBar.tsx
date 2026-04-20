@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   Bar,
   BarChart,
@@ -22,9 +23,20 @@ type Row = {
   byCategory: Record<CostCategory, number>;
 };
 
+type ChartPoint = {
+  divisionId: string;
+  name: string;
+  LABOR: number;
+  OUTSOURCE: number;
+  OPERATING: number;
+  COMMON: number;
+};
+
 const CATEGORIES: CostCategory[] = ["LABOR", "OUTSOURCE", "OPERATING", "COMMON"];
 
 export const DivisionStackedBar = ({ data }: { data: Row[] }) => {
+  const router = useRouter();
+
   if (data.length === 0) {
     return (
       <div className="flex h-80 items-center justify-center text-sm text-muted-foreground">
@@ -33,7 +45,8 @@ export const DivisionStackedBar = ({ data }: { data: Row[] }) => {
     );
   }
 
-  const chartData = data.map((row) => ({
+  const chartData: ChartPoint[] = data.map((row) => ({
+    divisionId: row.divisionId,
     name: row.divisionName,
     LABOR: row.byCategory.LABOR,
     OUTSOURCE: row.byCategory.OUTSOURCE,
@@ -43,7 +56,18 @@ export const DivisionStackedBar = ({ data }: { data: Row[] }) => {
 
   return (
     <ResponsiveContainer width="100%" height={360} minWidth={0} minHeight={0}>
-      <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+      <BarChart
+        data={chartData}
+        margin={{ top: 8, right: 8, bottom: 0, left: -20 }}
+        style={{ cursor: "pointer" }}
+        onClick={(e) => {
+          const state = e as unknown as {
+            activePayload?: Array<{ payload?: ChartPoint }>;
+          } | null;
+          const payload = state?.activePayload?.[0]?.payload;
+          if (payload?.divisionId) router.push(`/divisions/${payload.divisionId}`);
+        }}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
         <XAxis
           dataKey="name"
@@ -68,6 +92,7 @@ export const DivisionStackedBar = ({ data }: { data: Row[] }) => {
             border: "1px solid rgba(0,0,0,0.1)",
             fontSize: 12,
           }}
+          cursor={{ fill: "rgba(99,102,241,0.06)" }}
         />
         <Legend
           formatter={(value) => CATEGORY_LABELS[value as CostCategory]}

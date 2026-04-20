@@ -365,3 +365,182 @@ export async function listRecentCostItems(limit = 10): Promise<RecentCostItem[]>
     isInterUnit: item.isInterUnit,
   }));
 }
+
+type DivisionListRow = {
+  id: string;
+  name: string;
+  headcount: number;
+  projectCount: number;
+  activeProjectCount: number;
+  actual: number;
+  standard: number;
+  varianceRatio: number;
+};
+
+export async function listDivisions(): Promise<DivisionListRow[]> {
+  const [divisions, projects, costItems] = await Promise.all([
+    prisma.division.findMany({ orderBy: { name: "asc" } }),
+    prisma.project.findMany({ select: { id: true, divisionId: true, status: true } }),
+    prisma.costItem.findMany({
+      select: { divisionId: true, standardAmount: true, actualAmount: true },
+    }),
+  ]);
+
+  const projectStats = new Map<string, { total: number; active: number }>();
+  for (const p of projects) {
+    const stats = projectStats.get(p.divisionId) ?? { total: 0, active: 0 };
+    stats.total += 1;
+    if (p.status === "ACTIVE") stats.active += 1;
+    projectStats.set(p.divisionId, stats);
+  }
+
+  const costBuckets = new Map<string, { actual: number; standard: number }>();
+  for (const item of costItems) {
+    const bucket =
+      costBuckets.get(item.divisionId) ?? { actual: 0, standard: 0 };
+    bucket.actual += item.actualAmount;
+    bucket.standard += item.standardAmount;
+    costBuckets.set(item.divisionId, bucket);
+  }
+
+  return divisions
+    .map((d) => {
+      const stats = projectStats.get(d.id) ?? { total: 0, active: 0 };
+      const costs = costBuckets.get(d.id) ?? { actual: 0, standard: 0 };
+      return {
+        id: d.id,
+        name: d.name,
+        headcount: d.headcount,
+        projectCount: stats.total,
+        activeProjectCount: stats.active,
+        actual: costs.actual,
+        standard: costs.standard,
+        varianceRatio: calcVariance(costs.standard, costs.actual).ratio,
+      };
+    })
+    .sort((a, b) => b.actual - a.actual);
+}
+
+type DivisionDetail = {
+  division: DivisionModel;
+  kpis: {
+    actual: number;
+    standard: number;
+    variance: { amount: number; ratio: number };
+    projectCount: number;
+    activeProjectCount: number;
+    interUnitRatio: number;
+  };
+  projects: Array<{
+    id: string;
+    name: string;
+    code: string;
+    status: ProjectStatus;
+    actual: number;
+    standard: number;
+    varianceRatio: number;
+    itemCount: number;
+  }>;
+  monthlyTrend: Array<{ period: string; actual: number; standard: number }>;
+  categoryBreakdown: Array<{
+    category: CostCategory;
+    actual: number;
+    ratio: number;
+  }>;
+};
+
+const ALL_CATEGORY_KEYS: CostCategory[] = ["LABOR", "OUTSOURCE", "OPERATING", "COMMON"];
+
+export async function getDivisionDetail(id: string): Promise<DivisionDetail | null> {
+  const division = await prisma.division.findUnique({ where: { id } });
+  if (!division) return null;
+
+  const [projects, costItems] = await Promise.all([
+    prisma.project.findMany({
+      where: { divisionId: id },
+      orderBy: { code: "asc" },
+    }),
+    prisma.costItem.findMany({ where: { divisionId: id } }),
+  ]);
+
+  const perProject = new Map<
+    string,
+    { actual: number; standard: number; count: number }
+  >();
+  const monthBuckets = new Map<string, { actual: number; standard: number }>();
+  const categoryActual = emptyCategoryBucket();
+
+  let actualTotal = 0;
+  let standardTotal = 0;
+  let interUnitActual = 0;
+
+  for (const item of costItems) {
+    actualTotal += item.actualAmount;
+    standardTotal += item.standardAmount;
+    if (item.isInterUnit) interUnitActual += item.actualAmount;
+
+    const proj = perProject.get(item.projectId) ?? {
+      actual: 0,
+      standard: 0,
+      count: 0,
+    };
+    proj.actual += item.actualAmount;
+    proj.standard += item.standardAmount;
+    proj.count += 1;
+    perProject.set(item.projectId, proj);
+
+    const month = monthBuckets.get(item.period) ?? { actual: 0, standard: 0 };
+    month.actual += item.actualAmount;
+    month.standard += item.standardAmount;
+    monthBuckets.set(item.period, month);
+
+    categoryActual[item.category as CostCategory] += item.actualAmount;
+  }
+
+  const projectRows = projects
+    .map((p) => {
+      const bucket = perProject.get(p.id) ?? { actual: 0, standard: 0, count: 0 };
+      return {
+        id: p.id,
+        name: p.name,
+        code: p.code,
+        status: p.status as ProjectStatus,
+        actual: bucket.actual,
+        standard: bucket.standard,
+        varianceRatio: calcVariance(bucket.standard, bucket.actual).ratio,
+        itemCount: bucket.count,
+      };
+    })
+    .sort((a, b) => b.actual - a.actual);
+
+  const activeProjectCount = projects.filter((p) => p.status === "ACTIVE").length;
+
+  const monthlyTrend = Array.from(monthBuckets.entries())
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([period, bucket]) => ({
+      period,
+      actual: bucket.actual,
+      standard: bucket.standard,
+    }));
+
+  const categoryBreakdown = ALL_CATEGORY_KEYS.map((category) => ({
+    category,
+    actual: categoryActual[category],
+    ratio: actualTotal === 0 ? 0 : categoryActual[category] / actualTotal,
+  }));
+
+  return {
+    division,
+    kpis: {
+      actual: actualTotal,
+      standard: standardTotal,
+      variance: calcVariance(standardTotal, actualTotal),
+      projectCount: projects.length,
+      activeProjectCount,
+      interUnitRatio: actualTotal === 0 ? 0 : interUnitActual / actualTotal,
+    },
+    projects: projectRows,
+    monthlyTrend,
+    categoryBreakdown,
+  };
+}

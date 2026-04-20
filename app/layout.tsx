@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 const NAV = [
   { href: "/", label: "대시보드", disabled: false },
   { href: "/projects", label: "프로젝트", disabled: false },
-  { href: "#", label: "본부", disabled: true },
+  { href: "/divisions", label: "본부", disabled: false },
 ];
 
 export default function RootLayout({
