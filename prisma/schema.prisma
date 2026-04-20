@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -10,4 +5,58 @@ generator client {
 
 datasource db {
   provider = "sqlite"
+}
+
+model Division {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  headcount Int      @default(0)
+  createdAt DateTime @default(now())
+
+  projects         Project[]
+  chargedCostItems CostItem[] @relation("ChargedDivision")
+  sourceCostItems  CostItem[] @relation("SourceDivision")
+}
+
+model Project {
+  id          String    @id @default(cuid())
+  name        String
+  code        String    @unique
+  divisionId  String
+  division_   Division  @relation(fields: [divisionId], references: [id], onDelete: Cascade)
+  status      String
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  description String?
+  createdAt   DateTime  @default(now())
+
+  costItems CostItem[]
+
+  @@index([divisionId])
+  @@index([status])
+}
+
+model CostItem {
+  id      String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  divisionId String
+  division   Division @relation("ChargedDivision", fields: [divisionId], references: [id], onDelete: Cascade)
+
+  sourceDivisionId String?
+  sourceDivision   Division? @relation("SourceDivision", fields: [sourceDivisionId], references: [id], onDelete: SetNull)
+
+  category       String
+  period         String
+  standardAmount Int
+  actualAmount   Int
+  isInterUnit    Boolean @default(false)
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  @@index([projectId, period])
+  @@index([divisionId, period])
+  @@index([category])
+  @@index([period])
 }
